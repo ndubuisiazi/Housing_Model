@@ -1,6 +1,14 @@
-import streamlit as st
-import pickle
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import pandas as pd
 import numpy as np
+import pickle
+
+# Load data
+df_cleaned = pd.read_pickle("df_cleaned.pkl")
+centroids = np.load('centroids.npy')
 
 def load_model():
     with open('housing_model.pkl', 'rb') as file:
@@ -10,28 +18,65 @@ def load_model():
 data = load_model()
 regressor = data["model"]
 
-def show_predict_page():
-    st.title("Housing Price Prediction")
-    st.write("""### Please provide the following details to get the housing price prediction""")
+app = dash.Dash(__name__)
 
-    # User input fields
-    year_built = st.number_input("Year Built", min_value=1900, max_value=2023)
-    square_footage = st.number_input("Square Footage", min_value=0)
-    lot_sqft = st.number_input("Lot Square Footage", min_value=0)
-    bedrooms = st.number_input("Bedrooms", min_value=0)
-    bathrooms = st.number_input("Bathrooms", min_value=0)
-    days_to_sell = st.number_input("Days to Sell", min_value=0)
+# Layout
+app.layout = html.Div([
+    html.H1("Housing Price Prediction"),
+    html.P("Please provide the following details to get the housing price prediction"),
+    dcc.Input(id='square_footage', type='number', placeholder='Square Footage'),
+    dcc.Input(id='lot_sqft', type='number', placeholder='Lot Square Footage'),
+    dcc.Input(id='bedrooms', type='number', placeholder='Bedrooms'),
+    dcc.Input(id='bathrooms', type='number', placeholder='Bathrooms'),
+    # Map
+    dcc.Graph(id='map', figure={
+        'data': [{
+            'type': 'scattermapbox',
+            'lat': centroids[:, 1],
+            'lon': centroids[:, 0],
+            'mode': 'markers',
+            'marker': {'size': 10, 'color': 'red'},
+            'text': [f'Centroid_{i}' for i in range(len(centroids))],
+        }],
+        'layout': {
+            'mapbox': {
+                'style': 'carto-positron',
+                'center': {'lat': np.mean(centroids[:, 1]), 'lon': np.mean(centroids[:, 0])},
+                'zoom': 10
+            }
+        }
+    }),
+    html.Div(id='selected-cluster', children='No cluster selected'),
+    html.Button('Calculate Housing Price', id='calculate-btn'),
+    html.Div(id='predicted-price', children='')
+])
 
-    # Dropdown for clusters
-    cluster_options = [f"Cluster_{i}" for i in range(50)]
-    selected_cluster = st.selectbox("Select a cluster", cluster_options)
-    cluster_data = [1 if selected_cluster == option else 0 for option in cluster_options]
+@app.callback(
+    Output('selected-cluster', 'children'),
+    [Input('map', 'clickData')]
+)
+def update_selected_cluster(clickData):
+    if clickData:
+        cluster = clickData['points'][0]['text']
+        return f'Selected Cluster: {cluster}'
+    return 'No cluster selected'
 
-    ok = st.button("Calculate Housing Price")
-    if ok:
-        X = np.array([year_built, square_footage, lot_sqft, bedrooms, bathrooms, days_to_sell] + cluster_data)
-        X = X.reshape(1, -1)
+@app.callback(
+    Output('predicted-price', 'children'),
+    [Input('calculate-btn', 'n_clicks')],
+    [Input('square_footage', 'value'),
+     Input('lot_sqft', 'value'),
+     Input('bedrooms', 'value'),
+     Input('bathrooms', 'value'),
+     Input('selected-cluster', 'children')]
+)
+def calculate_price(n, square_footage, lot_sqft, bedrooms, bathrooms, selected_cluster):
+    if n and "Centroid_" in selected_cluster:
+        cluster_data = [1 if f"Centroid_{i}" in selected_cluster else 0 for i in range(len(centroids))]
+        X = np.array([square_footage, lot_sqft, bedrooms, bathrooms] + cluster_data).reshape(1, -1)
         price = regressor.predict(X)
-        st.subheader(f"The estimated housing price is ${price[0]:.2f}")
+        return f"The estimated housing price is ${price[0]:.2f}"
+    return 'Please select a cluster and click "Calculate Housing Price"'
 
-show_predict_page()
+if __name__ == '__main__':
+    app.run_server(debug=True)
