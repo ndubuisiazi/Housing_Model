@@ -80,4 +80,4 @@ def calculate_price(n, square_footage, lot_sqft, bedrooms, bathrooms, selected_c
     return 'Please select a cluster and click "Calculate Housing Price"'
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=int(os.environ.get("PORT", 8050)))
+    app.run_server(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
